@@ -448,63 +448,63 @@ async def get_context_summary(user_id: str, api_key: str = Depends(get_api_key))
         
         # Create a human-readable summary
         summary = {
+            "user_id": user_id,
+            "explicit_preferences": {
                 "dietary_restrictions": user_context.preferences.dietary_restrictions,
-                "cuisine_preferences": user_context.preferences.cuisine_preferences,tary_restrictions,
-                "spice_level": user_context.preferences.spice_level,rences.cuisine_preferences,
-                "budget": user_context.preferences.budget  "spice_level": user_context.preferences.spice_level,
+                "cuisine_preferences": user_context.preferences.cuisine_preferences,
+                "spice_level": user_context.preferences.spice_level,
+                "budget": user_context.preferences.budget
             },
             "inferred_preferences": user_context.inferred_tastes,
             "recent_interactions": user_context.interaction_history[-5:] if user_context.interaction_history else [],
-            "context_age": "new user" if not user_context.interaction_history else f"{len(user_context.interaction_history)} interactions recorded",er_context.interaction_history[-5:] if user_context.interaction_history else [],
-            "preference_insights": []   "context_age": "new user" if not user_context.interaction_history else f"{len(user_context.interaction_history)} interactions recorded",
-        }    "preference_insights": []
+            "context_age": "new user" if not user_context.interaction_history else f"{len(user_context.interaction_history)} interactions recorded",
+            "preference_insights": []
+        }
         
         # Add insights based on explicit preferences first (for new users)
-        if user_context.preferences.cuisine_preferences:s)
+        if user_context.preferences.cuisine_preferences:
             for cuisine in user_context.preferences.cuisine_preferences:
-                summary["preference_insights"].append(f"You selected {cuisine} cuisine as a preference")    for cuisine in user_context.preferences.cuisine_preferences:
-        ou selected {cuisine} cuisine as a preference")
+                summary["preference_insights"].append(f"You selected {cuisine} cuisine as a preference")
+        
         if user_context.preferences.dietary_restrictions:
             for diet in user_context.preferences.dietary_restrictions:
-                summary["preference_insights"].append(f"You follow a {diet} diet")    for diet in user_context.preferences.dietary_restrictions:
-        ppend(f"You follow a {diet} diet")
+                summary["preference_insights"].append(f"You follow a {diet} diet")
+        
         if user_context.preferences.spice_level:
-            summary["preference_insights"].append(f"You prefer {user_context.preferences.spice_level.lower()} spice levels")ser_context.preferences.spice_level:
-            append(f"You prefer {user_context.preferences.spice_level.lower()} spice levels")
+            summary["preference_insights"].append(f"You prefer {user_context.preferences.spice_level.lower()} spice levels")
+            
         if user_context.preferences.budget:
             budget_desc = "budget-friendly" if user_context.preferences.budget == "$" else \
-                         "moderately priced" if user_context.preferences.budget == "$$" else "premium" \
-            summary["preference_insights"].append(f"You prefer {budget_desc} restaurants")                 "moderately priced" if user_context.preferences.budget == "$$" else "premium"
-        ants")
+                         "moderately priced" if user_context.preferences.budget == "$$" else "premium"
+            summary["preference_insights"].append(f"You prefer {budget_desc} restaurants")
+        
         # Add human-readable insights based on inferred tastes with lower thresholds
-        for taste, value in user_context.inferred_tastes.items(): with lower thresholds
-            if value > 0.6:  # Lower threshold from 0.7 to 0.6d_tastes.items():
+        for taste, value in user_context.inferred_tastes.items():
+            if value > 0.6:  # Lower threshold from 0.7 to 0.6
                 if taste.startswith("cuisine_"):
                     cuisine = taste.replace("cuisine_", "").title()
-                    summary["preference_insights"].append(f"Strong affinity for {cuisine} cuisine ({value:.2f})")ne_", "").title()
-                elif taste.startswith("prefers_"):uisine} cuisine ({value:.2f})")
+                    summary["preference_insights"].append(f"Strong affinity for {cuisine} cuisine ({value:.2f})")
+                elif taste.startswith("prefers_"):
                     pref = taste.replace("prefers_", "").replace("_", " ").title()
-                    summary["preference_insights"].append(f"Enjoys {pref} dishes ({value:.2f})")("_", " ").title()
-            elif value < 0.4:  # Raise threshold from 0.3 to 0.4"].append(f"Enjoys {pref} dishes ({value:.2f})")
+                    summary["preference_insights"].append(f"Enjoys {pref} dishes ({value:.2f})")
+            elif value < 0.4:  # Raise threshold from 0.3 to 0.4
                 if taste.startswith("cuisine_"):
                     cuisine = taste.replace("cuisine_", "").title()
-                    summary["preference_insights"].append(f"Low interest in {cuisine} cuisine ({value:.2f})")ne_", "").title()
-                elif taste.startswith("prefers_"):ne} cuisine ({value:.2f})")
+                    summary["preference_insights"].append(f"Low interest in {cuisine} cuisine ({value:.2f})")
+                elif taste.startswith("prefers_"):
                     pref = taste.replace("prefers_", "").replace("_", " ").title()
-                    summary["preference_insights"].append(f"Avoids {pref} dishes ({value:.2f})")            pref = taste.replace("prefers_", "").replace("_", " ").title()
-        pend(f"Avoids {pref} dishes ({value:.2f})")
+                    summary["preference_insights"].append(f"Avoids {pref} dishes ({value:.2f})")
+        
         # If still no insights, add some generic ones
-        if not summary["preference_insights"]:ic ones
+        if not summary["preference_insights"]:
             summary["preference_insights"] = [
                 "Keep interacting with recommendations to build your taste profile",
-                "Try liking or disliking more items to get personalized insights",build your taste profile",
-                "Your preferences are still being learned"   "Try liking or disliking more items to get personalized insights",
-            ]        "Your preferences are still being learned"
+                "Try liking or disliking more items to get personalized insights",
+                "Your preferences are still being learned"
+            ]
         
-        return summary    
+        return summary
     
     except Exception as e:
         logger.error(f"Error retrieving context summary for user {user_id}: {str(e)}")
-
-        raise HTTPException(status_code=500, detail=f"Error retrieving context summary: {str(e)}")        logger.error(f"Error retrieving context summary for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error retrieving context summary: {str(e)}")

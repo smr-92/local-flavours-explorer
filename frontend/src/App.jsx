@@ -676,6 +676,57 @@ const MCPDashboard = () => {
         </ul>
       </div>
       
+      {/* Add new section about database architecture */}
+      <div className="mcp-section">
+        <h3>Database Architecture: Why Two Databases?</h3>
+        <p>
+          This application uses a dual-database architecture to optimize for different data needs:
+        </p>
+        
+        <div className="db-comparison">
+          <div className="db-card mongodb">
+            <h4>MongoDB (NoSQL)</h4>
+            <h5>Used for: User Context</h5>
+            <ul>
+              <li><strong>Flexible Schema:</strong> User preferences and tastes evolve over time, requiring a dynamic schema</li>
+              <li><strong>Rapid Iteration:</strong> New preference attributes can be added without migrations</li>
+              <li><strong>Document Storage:</strong> Natural fit for storing complete user context as a single document</li>
+              <li><strong>High Write Volume:</strong> Efficiently handles frequent updates to user context as feedback is provided</li>
+            </ul>
+          </div>
+          
+          <div className="db-card postgres">
+            <h4>PostgreSQL (Relational)</h4>
+            <h5>Used for: Restaurant & Dish Data</h5>
+            <ul>
+              <li><strong>Structured Data:</strong> Restaurants and dishes have well-defined, stable schemas</li>
+              <li><strong>Relational Integrity:</strong> Maintains relationships between restaurants and their dishes</li>
+              <li><strong>Complex Queries:</strong> Efficiently filters and sorts based on multiple criteria</li>
+              <li><strong>ACID Compliance:</strong> Ensures data consistency for business-critical information</li>
+            </ul>
+          </div>
+        </div>
+        
+        <div className="db-explanation">
+          <h4>Why This Matters for MCP:</h4>
+          <p>
+            This dual-database approach demonstrates another key advantage of the MCP architecture: 
+            <strong>specialized data storage for different concerns</strong>. The preference learning 
+            and context management functions can use MongoDB's flexibility, while the recommendation 
+            system can leverage PostgreSQL's querying capabilities.
+          </p>
+          <p>
+            In a production environment, this separation allows teams to:
+          </p>
+          <ul>
+            <li>Scale each database independently based on usage patterns</li>
+            <li>Optimize each for their specific workloads</li>
+            <li>Ensure sensitive user context data is stored separately from content data</li>
+            <li>Add new context dimensions without impacting the core recommendation service</li>
+          </ul>
+        </div>
+      </div>
+      
       <div className="mcp-section">
         <h3>MCP in Action: Local Flavors Explorer</h3>
         <p>
