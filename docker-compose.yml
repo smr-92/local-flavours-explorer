@@ -1,0 +1,78 @@
+# docker-compose.yml
+version: '3.8'
+services:
+ frontend:
+   build:
+     context: ./frontend
+     dockerfile: Dockerfile
+   ports:
+     - "3000:3000" # React/Vite default port
+   volumes:
+     - ./frontend:/app
+     - /app/node_modules # Important for hot reloading
+   depends_on:
+     - app_api
+   environment:
+     # This URL will be used by the frontend to talk to the app_api
+     VITE_APP_API_URL: http://localhost:8000 # Use localhost for direct local testing, or app_api for Docker network if frontend is also inside Docker for API calls
+ app_api:
+   build:
+     context: ./app_api
+     dockerfile: Dockerfile
+   ports:
+     - "8000:8000" # Node.js Express default port
+   volumes:
+     - ./app_api:/app
+     - /app/node_modules
+     - app_api_data:/app/data  # Add this volume for user data persistence
+   depends_on:
+     - mcp
+   environment:
+     MCP_API_URL: http://mcp:8001 # mcp is the service name in docker-compose
+     MCP_API_KEY: your_super_secret_mcp_api_key # We'll define this later for app_api to mcp auth
+     POSTGRES_HOST: postgres
+     POSTGRES_PORT: 5432
+     POSTGRES_USER: user
+     POSTGRES_PASSWORD: password
+     POSTGRES_DB: restaurants_db
+     JWT_SECRET: your_jwt_secret_key # For user authentication
+ mcp:
+   build:
+     context: ./mcp
+     dockerfile: Dockerfile
+   ports:
+     - "8001:8001" # FastAPI default port
+   volumes:
+     - ./mcp:/app
+   depends_on:
+     - mongodb
+     - postgres
+   environment:
+     MONGO_URI: mongodb://mongodb:27017/mcp_context_db # mongodb is the service name
+     POSTGRES_HOST: postgres
+     POSTGRES_PORT: 5432
+     POSTGRES_USER: user
+     POSTGRES_PASSWORD: password
+     POSTGRES_DB: restaurants_db
+     MCP_API_KEY: your_super_secret_mcp_api_key # For mcp to authenticate itself
+ mongodb:
+   image: mongo:latest
+   ports:
+     - "27017:27017"
+   volumes:
+     - mongo_data:/data/db # Persist MongoDB data
+ postgres:
+   image: postgres:13
+   ports:
+     - "5432:5432"
+   environment:
+     POSTGRES_USER: user
+     POSTGRES_PASSWORD: password
+     POSTGRES_DB: restaurants_db
+   volumes:
+     - postgres_data:/var/lib/postgresql/data # Persist PostgreSQL data
+     - ./init-db:/docker-entrypoint-initdb.d # 
+volumes:
+ mongo_data:
+ postgres_data:
+ app_api_data:  # Add this named volume
