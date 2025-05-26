@@ -4,3 +4,5 @@ uvicorn[standard]
 python-dotenv # For local development without Docker
 pymongo # MongoDB driver
 psycopg2-binary # PostgreSQL driver
+requests # For API calls
+huggingface_hub # For Hugging Face API access

@@ -708,3 +708,149 @@ pre {
   margin-bottom: 8px;
   line-height: 1.4;
 }
+
+/* AI Integration Verification Styles */
+.ai-mode-toggle {
+}
+
+.ai-badge {
+  background-color: #5436DA;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin-left: 10px;
+  font-size: 0.8em;
+  font-weight: bold;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.ai-badge::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background-color: #10B981;
+  border-radius: 50%;
+  margin-right: 5px;
+  animation: pulse 2s infinite;
+}
+
+.ai-connection-error .ai-badge::before {
+  background-color: #EF4444;
+  animation: none;
+}
+
+.ai-loading .ai-badge::before {
+  background-color: #F59E0B;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
+}
+
+.ai-description {
+  border-left: 3px solid #5436DA;
+  padding: 8px 12px;
+  margin: 10px 0;
+  background-color: #F9F7FF;
+}
+
+.ai-description h5 {
+  color: #5436DA;
+  margin: 0 0 5px 0;
+  font-size: 0.9em;
+  display: flex;
+  align-items: center;
+}
+
+.ai-description h5::after {
+  content: 'AI';
+  margin-left: 5px;
+  font-size: 0.7em;
+  background-color: #5436DA;
+  color: white;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.ai-attributes-container {
+  margin: 10px 0;
+  background-color: #F3F0FF;
+  border-radius: 8px;
+  padding: 10px;
+  border-left: 4px solid #5436DA;
+}
+
+.ai-attributes-title {
+  margin: 0 0 8px 0;
+  color: #5436DA;
+  font-size: 0.95em;
+  display: flex;
+  align-items: center;
+}
+
+.ai-badge-small {
+  background-color: #5436DA;
+  color: white;
+  font-size: 0.7em;
+  padding: 2px 5px;
+  border-radius: 3px;
+  margin-right: 5px;
+  font-weight: bold;
+}
+
+.ai-attributes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-attribute-tag {
+  background-color: #EAE4FF;
+  color: #5436DA;
+  border: 1px solid #5436DA;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.85em;
+  font-weight: bold;
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+}
+
+.dish-card.ai-enhanced {
+  background-color: #FEFEFF;
+  border: 1px solid #E4E2F5;
+  box-shadow: 0 3px 10px rgba(84, 54, 218, 0.08);
+}
+
+.ai-explanation {
+  font-size: 0.9em;
+  color: #5436DA;
+  margin-bottom: 20px;
+  background-color: #F3F0FF;
+  padding: 8px 12px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+}
+
+.ai-explanation::before {
+  content: '🤖';
+  margin-right: 8px;
+  font-size: 1.2em;
+}
+
+/* Animations for AI elements */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ai-attributes-container, .ai-description {
+  animation: fadeIn 0.5s ease-in-out;
+}

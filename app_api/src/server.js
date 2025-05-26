@@ -248,6 +248,89 @@ app.get('/api/health/e2e', async (req, res) => {
   }
 });
 
+// AI-enhanced recommendations endpoint with improved logging
+app.get('/api/ai-recommendations', authenticateToken, async (req, res) => {
+   try {
+       console.log(`Fetching AI-enhanced recommendations for user ${req.user.id}`);
+       console.log('Making request to Hugging Face-powered MCP endpoint...');
+       
+       const startTime = Date.now();
+       const mcpResponse = await axios.get(
+           `${MCP_API_URL}/mcp/v1/ai-recommendations/user/${req.user.id}`,
+           {
+               headers: { 'X-MCP-API-Key': MCP_API_KEY }
+           }
+       );
+       const endTime = Date.now();
+       
+       // Log AI-specific information
+       console.log(`AI request completed in ${endTime - startTime}ms`);
+       console.log(`Received ${mcpResponse.data.enhanced_dishes?.length || 0} AI-enhanced dishes`);
+       
+       // Check if we got AI descriptions
+       const aiDescriptionSample = mcpResponse.data.enhanced_dishes?.[0]?.ai_description;
+       if (aiDescriptionSample) {
+           console.log('AI Integration Verified: Received AI-generated descriptions');
+           console.log(`Sample AI description: "${aiDescriptionSample.substring(0, 50)}..."`);
+       } else {
+           console.warn('AI Integration Warning: No AI descriptions found in response');
+       }
+       
+       res.status(200).json(mcpResponse.data);
+   } catch (error) {
+       console.error('Error fetching AI recommendations from MCP:', 
+           error.response ? error.response.data : error.message);
+       console.error('AI Integration Error: Failed to get AI-enhanced recommendations');
+       res.status(500).json({ 
+           message: 'Error fetching AI recommendations', 
+           error: error.message,
+           details: error.response ? error.response.data : 'No additional details',
+           ai_status: 'error'
+       });
+   }
+});
+
+// AI-powered feedback analysis endpoint
+app.post('/api/ai-feedback', authenticateToken, async (req, res) => {
+   const { itemId, itemType, feedbackText } = req.body;
+   
+   if (!itemId || !itemType || !feedbackText) {
+       return res.status(400).json({ message: 'Missing required feedback data' });
+   }
+   
+   try {
+       console.log(`Sending AI feedback analysis for user ${req.user.id}`);
+       
+       const feedbackData = {
+           item_id: String(itemId),
+           item_type: itemType,
+           feedback_text: feedbackText,
+           timestamp: new Date().toISOString()
+       };
+       
+       console.log('Sending AI feedback data to MCP:', feedbackData);
+       
+       const mcpResponse = await axios.post(
+           `${MCP_API_URL}/mcp/v1/context/user/${req.user.id}/ai-feedback`,
+           feedbackData,
+           {
+               headers: { 'X-MCP-API-Key': MCP_API_KEY }
+           }
+       );
+       
+       console.log('MCP AI feedback response:', mcpResponse.data);
+       res.status(200).json({ 
+           message: `AI-analyzed feedback recorded for user ${req.user.id}`,
+           sentiment_analysis: mcpResponse.data.sentiment_analysis,
+           interaction: mcpResponse.data.derived_interaction,
+           context_updated: true
+       });
+   } catch (error) {
+       console.error('Error sending AI feedback to MCP:', error.response ? error.response.data : error.message);
+       res.status(500).json({ message: 'Error analyzing feedback', error: error.message });
+   }
+});
+
 // Start the server
 app.listen(port, () => {
  console.log(`Application API running on port ${port}`);
