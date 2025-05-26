@@ -15,7 +15,42 @@ Local Flavours Explorer helps users discover restaurants and dishes based on the
 
 This project implements the **Model Context Protocol (MCP)** architecture, which separates the AI/ML layer from application business logic:
 
-![Architecture Diagram](./docs/architecture_diagram.png)
+```
++-------------------+          +-------------------+
+|   User Profile    |          |   Restaurant DB   |
+|  (Preferences,    |          |  (Ratings, Tags,  |
+|   Feedback, etc.) |          |   Location, etc.) |
++-------------------+          +-------------------+
+          |                              |
+          |                              |
+          +--------------+---------------+
+                         |
+                         v
+                +-----------------+
+                |   Recommendation  |
+                |      Engine      |
+                +-----------------+
+                         |
+                         v
+                +-----------------+
+                |   AI/ML Layer    |
+                | (Model Context   |
+                |    Protocol)     |
+                +-----------------+
+                         |
+                         v
+                +-----------------+
+                |   Business Logic  |
+                | (Routing, API,   |
+                |  Data Handling)  |
+                +-----------------+
+                         |
+                         v
+                +-----------------+
+                |   Presentation    |
+                |   (Frontend)      |
+                +-----------------+
+```
 
 ## 🚀 Getting Started
 
@@ -83,18 +118,63 @@ To run the application using Docker, use the following commands:
 4. Provide feedback on recommendations to improve personalization.
 5. Enjoy your meal!
 
-## 🛠️ Development
+## 🔧 Troubleshooting
 
-To contribute to this project, follow these guidelines:
+### API Connection Issues
 
-1. Fork the repo
-2. Create a new branch (`git checkout -b feature/AmazingFeature`)
-3. Make your changes
-4. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-5. Push to the branch (`git push origin feature/AmazingFeature`)
-6. Open a pull request
+If you encounter API connection issues:
 
-Please ensure your code follows the existing style and includes appropriate tests.
+1. **Check your network connectivity** - Ensure your machine can access the internet and local network
+2. **Verify services are running** - Confirm all Docker containers are up with `docker-compose ps`
+3. **Check API health** - Use the "Test API Health" button in the application UI
+4. **Inspect logs** - Check for errors in the container logs:
+   ```sh
+   docker-compose logs app_api
+   docker-compose logs mcp
+   ```
+5. **Reset services** - Sometimes restarting services solves connectivity issues:
+   ```sh
+   docker-compose restart app_api mcp
+   ```
+
+### AI Features Not Working
+
+If AI-enhanced features aren't functioning:
+
+1. **Verify Hugging Face API key** - Ensure you've set a valid key in the `docker-compose.yml` file
+2. **Check AI connectivity** - Toggle AI mode in the UI to test connectivity
+3. **Review MCP logs** - Look for AI-related errors:
+   ```sh
+   docker-compose logs mcp | grep "ai_models"
+   ```
+4. **Test alternate models** - Update `ai_models.py` to use different models if specific ones are unavailable
+5. **Fallback to standard mode** - The app will continue to function without AI enhancements
+
+### Database Issues
+
+If recommendations aren't loading or user data isn't being saved:
+
+1. **Check database connections** - Verify MongoDB and PostgreSQL are running:
+   ```sh
+   docker-compose logs mongodb
+   docker-compose logs postgres
+   ```
+2. **Ensure initial data is loaded** - Check if PostgreSQL initialization worked:
+   ```sh
+   docker-compose exec postgres psql -U user -d restaurants_db -c "SELECT COUNT(*) FROM restaurants;"
+   ```
+3. **Inspect connection strings** - Verify environment variables in `docker-compose.yml`
+4. **Reset database volumes** - For a fresh start (warning: this deletes all data):
+   ```sh
+   docker-compose down -v
+   docker-compose up
+   ```
+
+### Browser Issues
+
+1. **Clear cache and cookies** - Resolve stale JWT tokens or cached responses
+2. **Try Incognito/Private mode** - Test without browser extensions interference
+3. **Check console errors** - Use browser dev tools (F12) to identify frontend issues
 
 ## 📄 License
 
