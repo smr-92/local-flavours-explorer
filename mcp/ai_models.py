@@ -21,13 +21,58 @@ headers = {
 # Base URL for Hugging Face Inference API
 HF_API_URL = "https://api-inference.huggingface.co/models"
 
-# Updated model selections - use models that are definitely available in the Inference API
-TEXT_GENERATION_MODEL = "gpt2-large"  # Use a larger GPT-2 model which should be available
-SENTIMENT_MODEL = "distilbert-base-uncased-finetuned-sst-2-english"  # This one works fine
-ZERO_SHOT_MODEL = "facebook/bart-large-mnli"  # This one works fine
+# New Fireworks AI endpoint through Hugging Face
+FIREWORKS_API_URL = "https://router.huggingface.co/fireworks-ai/inference/v1/chat/completions"
+
+# Updated model selections
+TEXT_GENERATION_MODEL = "accounts/fireworks/models/qwen2p5-72b-instruct"  # New Fireworks AI model
+SENTIMENT_MODEL = "accounts/fireworks/models/qwen2p5-72b-instruct"  # Use same model for sentiment
+ZERO_SHOT_MODEL = "facebook/bart-large-mnli"  # Keep this as it's working
 
 # Simple cache for API responses to avoid redundant calls (for demo purposes)
 response_cache = {}
+
+def query_fireworks_ai(prompt: str) -> str:
+    """
+    Query the Fireworks AI model via Hugging Face.
+    """
+    try:
+        logger.info(f"Querying Fireworks AI: {prompt[:50]}...")
+        
+        payload = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "model": TEXT_GENERATION_MODEL
+        }
+        
+        response = requests.post(
+            FIREWORKS_API_URL,
+            headers=headers,
+            json=payload,
+            timeout=15
+        )
+        
+        logger.info(f"Fireworks AI response status: {response.status_code}")
+        
+        if response.status_code == 200:
+            result = response.json()
+            logger.info(f"AI OUTPUT (Fireworks): {json.dumps(result)[:100]}...")
+            
+            if "choices" in result and len(result["choices"]) > 0:
+                message = result["choices"][0]["message"]
+                if "content" in message:
+                    return message["content"].strip()
+        
+        logger.warning(f"Failed to get response from Fireworks AI: {response.status_code}")
+        return ""
+    
+    except Exception as e:
+        logger.error(f"Error querying Fireworks AI: {str(e)}")
+        return ""
 
 def generate_personalized_description(dish_name: str, cuisine: str, user_preferences: Dict) -> str:
     """
@@ -37,83 +82,33 @@ def generate_personalized_description(dish_name: str, cuisine: str, user_prefere
     cache_key = f"desc_{dish_name}_{cuisine}_{json.dumps(user_preferences)}"
     if cache_key in response_cache:
         logger.info(f"Using cached description for {dish_name}")
-        return response_cache[cache_key]
+        cached_result = response_cache[cache_key]
+        logger.info(f"AI OUTPUT (cached): {cached_result}")
+        return cached_result
     
     try:
         # Create prompt that incorporates user preferences
         dietary_focus = ", ".join(user_preferences.get("dietary_restrictions", []))
         if not dietary_focus:
             dietary_focus = "any diet"
-            
-        # Try a variety of prompts - use different templating strategies
-        prompts = [
-            # Standard prompt
-            f"Describe the {cuisine} dish '{dish_name}' in an appetizing way for someone who follows {dietary_focus}.",
-            
-            # Alternative prompt format
-            f"The following is a mouth-watering description of {dish_name}, a {cuisine} dish, suitable for {dietary_focus}:",
-            
-            # More specific prompt
-            f"'{dish_name}' is a {cuisine} dish that {dietary_focus} people would enjoy because"
-        ]
         
-        # Try different models in order of preference
-        models_to_try = [
-            "gpt2-large",  # Our primary choice
-            "distilgpt2",  # Smaller, but may be more available
-            "EleutherAI/gpt-neo-125M"  # Another alternative model
-        ]
+        # Create a prompt for the Fireworks AI model
+        prompt = f"""Write a delicious and appealing description of the {cuisine} dish '{dish_name}' 
+for someone who follows {dietary_focus}. Focus on flavors, ingredients, and what makes this dish special.
+Keep the description between 40-60 words and make it mouth-watering."""
         
-        # Try each model until one works
-        for model in models_to_try:
-            logger.info(f"Trying text generation with model: {model}")
-            
-            # Try each prompt until one works
-            for prompt in prompts:
-                logger.info(f"Sending prompt to Hugging Face API: {prompt[:50]}...")
-                
-                # Call Hugging Face API
-                response = requests.post(
-                    f"{HF_API_URL}/{model}",
-                    headers=headers,
-                    json={
-                        "inputs": prompt, 
-                        "parameters": {
-                            "max_length": 100, 
-                            "temperature": 0.8,
-                            "do_sample": True,
-                            "return_full_text": False
-                        }
-                    },
-                    timeout=10  # Add timeout
-                )
-                
-                logger.info(f"Response from {model}: status {response.status_code}")
-                
-                # If successful, process the response
-                if response.status_code == 200:
-                    try:
-                        result = response.json()
-                        if isinstance(result, list) and len(result) > 0:
-                            generated_text = result[0].get("generated_text", "")
-                            if generated_text and len(generated_text) > 20:  # Ensure we have a meaningful response
-                                # Clean up the generated text
-                                description = generated_text.strip()
-                                logger.info(f"Generated description with {model}: {description[:50]}...")
-                                
-                                # Cache the result
-                                response_cache[cache_key] = description
-                                return description
-                    except Exception as e:
-                        logger.warning(f"Error processing response from {model}: {e}")
-                        continue
-                
-                # If the model is still loading, wait briefly and continue with next option
-                elif response.status_code == 503:
-                    logger.info(f"Model {model} is still loading")
-                    time.sleep(1)  # Small delay before trying next option
-            
-        # If we get here, all models failed - create a robust fallback
+        # Try with Fireworks AI
+        generated_text = query_fireworks_ai(prompt)
+        
+        if generated_text and len(generated_text) > 20:
+            logger.info(f"Generated description with Fireworks AI: {generated_text[:50]}...")
+            response_cache[cache_key] = generated_text
+            return generated_text
+        
+        # If Fireworks AI fails, go straight to the custom fallbacks
+        logger.warning("Fireworks AI failed, using custom fallback descriptions")
+        
+        # If we get here, use fallback descriptions
         custom_descriptions = {
             # Italian dishes
             "Margherita Pizza": f"A classic {cuisine} pizza topped with fresh tomatoes, mozzarella, basil, and a drizzle of olive oil. Simple yet delicious!",
@@ -153,6 +148,7 @@ def generate_personalized_description(dish_name: str, cuisine: str, user_prefere
             description = cuisine_descriptions.get(cuisine, f"A delicious {cuisine} dish with wonderful flavors and textures.")
         
         logger.info(f"Using fallback description for {dish_name}")
+        logger.info(f"AI OUTPUT (fallback): {description}")
         
         # Cache the fallback result too
         response_cache[cache_key] = description
@@ -160,7 +156,9 @@ def generate_personalized_description(dish_name: str, cuisine: str, user_prefere
     
     except Exception as e:
         logger.error(f"Error generating description: {str(e)}")
-        return f"A traditional {cuisine} dish that's popular with many diners."
+        fallback = f"A traditional {cuisine} dish that's popular with many diners."
+        logger.info(f"AI OUTPUT (error fallback): {fallback}")
+        return fallback
 
 def analyze_feedback_sentiment(feedback_text: str) -> Dict:
     """
@@ -170,20 +168,46 @@ def analyze_feedback_sentiment(feedback_text: str) -> Dict:
     cache_key = f"sentiment_{feedback_text}"
     if cache_key in response_cache:
         logger.info(f"Using cached sentiment analysis")
-        return response_cache[cache_key]
+        cached_result = response_cache[cache_key]
+        logger.info(f"AI OUTPUT (cached sentiment): {json.dumps(cached_result)}")
+        return cached_result
     
     try:
-        logger.info(f"Analyzing sentiment for text: {feedback_text[:30]}...")
-        logger.info(f"Using model: {SENTIMENT_MODEL}")
+        # First try with Fireworks AI
+        prompt = f"""Analyze the sentiment of this food feedback text: "{feedback_text}"
+Please respond with only one word: POSITIVE, NEGATIVE, or NEUTRAL."""
+
+        sentiment_text = query_fireworks_ai(prompt)
+        
+        if sentiment_text:
+            # Parse the sentiment response
+            sentiment_text = sentiment_text.strip().upper()
+            if sentiment_text in ["POSITIVE", "NEGATIVE", "NEUTRAL"]:
+                sentiment_result = {
+                    "sentiment": sentiment_text,
+                    "confidence": 0.9,  # High confidence for large model
+                    "details": []
+                }
+                logger.info(f"Sentiment detected with Fireworks AI: {sentiment_text}")
+                logger.info(f"AI OUTPUT (sentiment): {json.dumps(sentiment_result)}")
+                
+                # Cache the result
+                response_cache[cache_key] = sentiment_result
+                return sentiment_result
+        
+        logger.warning("Fireworks AI sentiment analysis failed, trying fallback methods")
+        
+        # If Fireworks AI fails, try a backup model
+        backup_model = "distilbert-base-uncased-sentiment"
+        logger.info(f"Primary sentiment model failed, trying backup: {backup_model}")
         
         response = requests.post(
-            f"{HF_API_URL}/{SENTIMENT_MODEL}",
+            f"{HF_API_URL}/{backup_model}",
             headers=headers,
             json={"inputs": feedback_text},
-            timeout=10  # Add timeout
+            timeout=10
         )
-        
-        logger.info(f"Sentiment analysis response status: {response.status_code}")
+        logger.info(f"Backup sentiment analysis response status: {response.status_code}")
         
         if response.status_code == 200:
             result = response.json()
@@ -221,13 +245,17 @@ def analyze_feedback_sentiment(feedback_text: str) -> Dict:
         else:
             sentiment_result = {"sentiment": "NEUTRAL", "confidence": 0.7, "details": []}
         
+        logger.info(f"AI OUTPUT (keyword sentiment): {json.dumps(sentiment_result)}")
+        
         # Cache the fallback result too
         response_cache[cache_key] = sentiment_result
         return sentiment_result
     
     except Exception as e:
         logger.error(f"Error analyzing sentiment: {str(e)}")
-        return {"sentiment": "NEUTRAL", "confidence": 1.0, "details": []}
+        fallback_result = {"sentiment": "NEUTRAL", "confidence": 1.0, "details": []}
+        logger.info(f"AI OUTPUT (error fallback): {json.dumps(fallback_result)}")
+        return fallback_result
 
 def classify_dish_attributes(dish_name: str, dish_description: str) -> List[str]:
     """
