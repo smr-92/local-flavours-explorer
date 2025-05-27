@@ -219,12 +219,23 @@ def get_user_context(user_id: str):
 
 # Updated recommendations endpoint
 @app.get("/mcp/v1/recommendations/user/{user_id}", response_model=RecommendationResponse)
-async def get_recommendations(user_id: str, api_key: str = Depends(get_api_key)):
-    logger.info(f"Generating recommendations for user {user_id}")
+async def get_recommendations(
+    user_id: str, 
+    excluded_items: str = "",
+    refresh: str = "false",
+    api_key: str = Depends(get_api_key)
+):
+    logger.info(f"Generating recommendations for user {user_id}, excluded items: {excluded_items}")
     
     try:
         # Get user context
         user_context = get_user_context(user_id)
+        
+        # Parse excluded items
+        excluded_ids = []
+        if excluded_items:
+            excluded_ids = [item.strip() for item in excluded_items.split(',')]
+            logger.info(f"Excluding items: {excluded_ids}")
         
         # Connect to PostgreSQL
         with get_postgres_conn() as conn:
@@ -235,7 +246,7 @@ async def get_recommendations(user_id: str, api_key: str = Depends(get_api_key))
                 FROM restaurants r
                 """
                 
-                # Apply filters based on user preferences
+                # Apply filters based on user preferences and excluded items
                 filters = []
                 params = []
                 
@@ -255,9 +266,24 @@ async def get_recommendations(user_id: str, api_key: str = Depends(get_api_key))
                 if filters:
                     base_query += " WHERE " + " AND ".join(filters)
                 
-                # Add LIMIT clause with a higher number if we have few or no filters
-                limit = 10 if len(filters) <= 1 else 5
-                base_query += f" LIMIT {limit}"
+                # Add ORDER BY clause to prioritize restaurants based on user's inferred tastes
+                # First get restaurants user has liked cuisines for
+                cuisines_liked = []
+                for taste, value in user_context.inferred_tastes.items():
+                    if taste.startswith("cuisine_") and value > 0.6:
+                        cuisine = taste.replace("cuisine_", "").title()
+                        cuisines_liked.append(cuisine)
+                
+                if cuisines_liked:
+                    if filters:
+                        base_query += " ORDER BY CASE"
+                        for i, cuisine in enumerate(cuisines_liked):
+                            base_query += f" WHEN r.cuisine = %s THEN {i+1}"
+                            params.append(cuisine)
+                        base_query += " ELSE 999 END"
+                
+                # Add LIMIT clause with a higher number
+                base_query += f" LIMIT 15"  # Increased limit to have more options
                 
                 # Execute the query
                 cursor.execute(base_query, params)
@@ -272,20 +298,31 @@ async def get_recommendations(user_id: str, api_key: str = Depends(get_api_key))
                 # Convert to Restaurant objects
                 restaurants = [Restaurant(**row) for row in restaurant_rows]
                 
-                # Get dishes for each restaurant
+                # Get dishes, excluding any disliked ones
                 dish_query = """
                 SELECT d.id, d.restaurant_id, d.name, d.description, d.price, d.dietary_tags
                 FROM dishes d
                 WHERE d.restaurant_id = ANY(%s)
                 """
-                restaurant_ids = [r.id for r in restaurants]
                 
-                # Get dishes that match dietary preferences
+                # Add exclusion for disliked items
+                if excluded_ids:
+                    dish_query += " AND d.id::text NOT IN (" + ", ".join(["%s"] * len(excluded_ids)) + ")"
+                
+                restaurant_ids = [r.id for r in restaurants]
+                dish_params = [restaurant_ids]
+                
+                # Add excluded item params
+                if excluded_ids:
+                    dish_params.extend(excluded_ids)
+                
+                # Get dishes
                 dishes = []
                 if restaurant_ids:
-                    cursor.execute(dish_query, (restaurant_ids,))
+                    cursor.execute(dish_query, dish_params)
                     dish_rows = cursor.fetchall()
                     
+                    # Process dishes (similar to before)
                     for row in dish_rows:
                         # Convert dietary_tags from DB format to Python list
                         if isinstance(row['dietary_tags'], list):
@@ -312,12 +349,37 @@ async def get_recommendations(user_id: str, api_key: str = Depends(get_api_key))
                         if match_dietary:
                             dishes.append(Dish(**row))
                 
-                # Ensure we have some dishes - if not, get dishes regardless of dietary restrictions
-                if not dishes and restaurant_ids:
-                    logger.info("No matching dishes with dietary restrictions, including all dishes")
-                    cursor.execute(dish_query, (restaurant_ids,))
-                    dish_rows = cursor.fetchall()
-                    dishes = [Dish(**row) for row in dish_rows]
+                # Ensure we have enough dishes
+                if len(dishes) < 10 and restaurant_ids:
+                    # If we have too few dishes, fetch some more without the exclusions
+                    logger.info("Not enough dishes with exclusions, adding more options")
+                    simpler_query = """
+                    SELECT d.id, d.restaurant_id, d.name, d.description, d.price, d.dietary_tags
+                    FROM dishes d
+                    WHERE d.restaurant_id = ANY(%s)
+                    LIMIT 10
+                    """
+                    cursor.execute(simpler_query, [restaurant_ids])
+                    additional_rows = cursor.fetchall()
+                    
+                    # Only add dishes we don't already have
+                    existing_ids = {d.id for d in dishes}
+                    for row in additional_rows:
+                        if row['id'] not in existing_ids and str(row['id']) not in excluded_ids:
+                            # Process dietary tags
+                            if isinstance(row['dietary_tags'], list):
+                                dietary_tags = row['dietary_tags']
+                            else:
+                                dietary_tags = []
+                                if row['dietary_tags']:
+                                    try:
+                                        tags_str = row['dietary_tags'].strip('{}')
+                                        if tags_str:
+                                            dietary_tags = tags_str.split(',')
+                                    except:
+                                        pass
+                            row['dietary_tags'] = dietary_tags
+                            dishes.append(Dish(**row))
                 
                 # Calculate recommendation factors (for debug/visualization)
                 recommendation_factors = {
@@ -334,7 +396,7 @@ async def get_recommendations(user_id: str, api_key: str = Depends(get_api_key))
                 return RecommendationResponse(
                     restaurants=restaurants,
                     dishes=dishes,
-                    message=f"Generated {len(restaurants)} restaurant recommendations for user {user_id}",
+                    message=f"Generated {len(restaurants)} restaurant and {len(dishes)} dish recommendations for user {user_id}",
                     recommendation_factors=recommendation_factors,
                     user_context=user_context.dict()  # Add user context to response
                 )
@@ -345,12 +407,17 @@ async def get_recommendations(user_id: str, api_key: str = Depends(get_api_key))
 
 # AI-enhanced recommendations endpoint
 @app.get("/mcp/v1/ai-recommendations/user/{user_id}", response_model=EnhancedRecommendationResponse)
-async def get_ai_recommendations(user_id: str, api_key: str = Depends(get_api_key)):
+async def get_ai_recommendations(
+    user_id: str, 
+    excluded_items: str = "",
+    refresh: str = "false",
+    api_key: str = Depends(get_api_key)
+):
     logger.info(f"Generating AI-enhanced recommendations for user {user_id}")
     
     try:
         # Get the standard recommendations first
-        standard_recs = await get_recommendations(user_id, api_key)
+        standard_recs = await get_recommendations(user_id, excluded_items, refresh, api_key)
         
         # Get user context
         user_context = get_user_context(user_id)

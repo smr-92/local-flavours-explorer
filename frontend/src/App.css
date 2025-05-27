@@ -854,3 +854,75 @@ pre {
 .ai-attributes-container, .ai-description {
   animation: fadeIn 0.5s ease-in-out;
 }
+
+/* Improved AI Sentiment Analysis Styles */
+.ai-sentiment-analysis {
+  background-color: #f5f5f5;
+  border-left: 4px solid #5436DA;
+  padding: 12px;
+  border-radius: 6px;
+  margin: 15px auto;
+  animation: fadeIn 0.5s ease;
+  max-width: 600px;
+  position: relative;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+}
+
+.ai-sentiment-analysis.error {
+  border-left: 4px solid #EF4444;
+}
+
+.sentiment-main {
+  font-weight: bold;
+  margin-bottom: 12px;
+  font-size: 1.1em;
+}
+
+.sentiment-details {
+  font-size: 0.9em;
+  padding: 12px;
+  background-color: rgba(84, 54, 218, 0.05);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.reasoning {
+  font-style: italic;
+  line-height: 1.4;
+}
+
+.key-phrases {
+  font-size: 0.85em;
+  color: #555;
+  background-color: rgba(84, 54, 218, 0.02);
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+.analysis-method {
+  font-size: 0.8em;
+  color: #666;
+  margin-top: 5px;
+  text-align: right;
+}
+
+.close-feedback-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  font-size: 0.8em;
+  color: #666;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.close-feedback-btn:hover {
+  background-color: rgba(0,0,0,0.05);
+  color: #333;
+}

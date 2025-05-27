@@ -162,7 +162,7 @@ Keep the description between 40-60 words and make it mouth-watering."""
 
 def analyze_feedback_sentiment(feedback_text: str) -> Dict:
     """
-    Analyze the sentiment of user feedback.
+    Analyze the sentiment of user feedback with detailed confidence and explanation.
     """
     # Create a cache key for this request
     cache_key = f"sentiment_{feedback_text}"
@@ -173,27 +173,93 @@ def analyze_feedback_sentiment(feedback_text: str) -> Dict:
         return cached_result
     
     try:
-        # First try with Fireworks AI
+        # First try with Fireworks AI - use a more detailed prompt to get confidence and reasoning
         prompt = f"""Analyze the sentiment of this food feedback text: "{feedback_text}"
-Please respond with only one word: POSITIVE, NEGATIVE, or NEUTRAL."""
+Please respond in JSON format with the following fields:
+- sentiment: "POSITIVE", "NEGATIVE", or "NEUTRAL"
+- confidence: a score between 0.0 and 1.0 indicating your confidence
+- reasoning: a brief explanation of why you chose this sentiment
+- key_phrases: up to 3 phrases from the text that influenced your decision
+
+Example response format:
+{{
+  "sentiment": "POSITIVE",
+  "confidence": 0.85,
+  "reasoning": "The text contains positive words and expresses enjoyment",
+  "key_phrases": ["delicious", "enjoyed the meal", "will come back"]
+}}
+"""
 
         sentiment_text = query_fireworks_ai(prompt)
         
         if sentiment_text:
-            # Parse the sentiment response
+            try:
+                # Try to parse the JSON response
+                sentiment_data = json.loads(sentiment_text)
+                if isinstance(sentiment_data, dict) and "sentiment" in sentiment_data:
+                    # Clean up and validate the response
+                    sentiment = sentiment_data.get("sentiment", "").strip().upper()
+                    if sentiment in ["POSITIVE", "NEGATIVE", "NEUTRAL"]:
+                        # Extract other fields with defaults
+                        confidence = float(sentiment_data.get("confidence", 0.7))
+                        # Ensure confidence is between 0 and 1
+                        confidence = max(0.0, min(1.0, confidence))
+                        
+                        reasoning = sentiment_data.get("reasoning", "")
+                        key_phrases = sentiment_data.get("key_phrases", [])
+                        
+                        # Create structured result
+                        sentiment_result = {
+                            "sentiment": sentiment,
+                            "confidence": confidence,
+                            "details": {
+                                "reasoning": reasoning,
+                                "key_phrases": key_phrases,
+                                "analysis_method": "AI semantic understanding"
+                            }
+                        }
+                        
+                        logger.info(f"Sentiment detected with Fireworks AI: {sentiment} (confidence: {confidence:.2f})")
+                        logger.info(f"AI OUTPUT (detailed sentiment): {json.dumps(sentiment_result)}")
+                        
+                        # Cache the result
+                        response_cache[cache_key] = sentiment_result
+                        return sentiment_result
+            except json.JSONDecodeError:
+                # If JSON parsing fails, try to extract just the sentiment
+                logger.warning("Failed to parse JSON response, attempting to extract sentiment directly")
+                # Continue to the simpler extraction below
+        
+            # If structured JSON parsing failed but we have text, try simple extraction
             sentiment_text = sentiment_text.strip().upper()
-            if sentiment_text in ["POSITIVE", "NEGATIVE", "NEUTRAL"]:
-                sentiment_result = {
-                    "sentiment": sentiment_text,
-                    "confidence": 0.9,  # High confidence for large model
-                    "details": []
-                }
-                logger.info(f"Sentiment detected with Fireworks AI: {sentiment_text}")
-                logger.info(f"AI OUTPUT (sentiment): {json.dumps(sentiment_result)}")
+            if "POSITIVE" in sentiment_text:
+                sentiment = "POSITIVE"
+            elif "NEGATIVE" in sentiment_text:
+                sentiment = "NEGATIVE"
+            elif "NEUTRAL" in sentiment_text:
+                sentiment = "NEUTRAL"
+            else:
+                # Default case if we can't determine
+                logger.warning(f"Could not extract sentiment from text: {sentiment_text[:50]}...")
+                sentiment = "NEUTRAL"
                 
-                # Cache the result
-                response_cache[cache_key] = sentiment_result
-                return sentiment_result
+            # Create simpler result with less detail
+            sentiment_result = {
+                "sentiment": sentiment,
+                "confidence": 0.7,  # Medium confidence since we couldn't get exact value
+                "details": {
+                    "reasoning": "Based on text sentiment analysis",
+                    "key_phrases": [],
+                    "analysis_method": "AI text classification"
+                }
+            }
+            
+            logger.info(f"Sentiment detected with basic extraction: {sentiment}")
+            logger.info(f"AI OUTPUT (simple sentiment): {json.dumps(sentiment_result)}")
+            
+            # Cache the result
+            response_cache[cache_key] = sentiment_result
+            return sentiment_result
         
         logger.warning("Fireworks AI sentiment analysis failed, trying fallback methods")
         
@@ -238,12 +304,40 @@ Please respond with only one word: POSITIVE, NEGATIVE, or NEUTRAL."""
         positive_count = sum(1 for word in positive_keywords if word in feedback_lower)
         negative_count = sum(1 for word in negative_keywords if word in feedback_lower)
         
+        # Find actual matching keywords for details
+        matched_positive = [word for word in positive_keywords if word in feedback_lower]
+        matched_negative = [word for word in negative_keywords if word in feedback_lower]
+        
         if positive_count > negative_count:
-            sentiment_result = {"sentiment": "POSITIVE", "confidence": 0.7, "details": []}
+            sentiment_result = {
+                "sentiment": "POSITIVE", 
+                "confidence": 0.5 + (0.1 * min(positive_count, 5)),  # Scale confidence based on keyword count
+                "details": {
+                    "reasoning": f"Found {positive_count} positive keywords vs {negative_count} negative keywords",
+                    "key_phrases": matched_positive[:3],  # Up to 3 matching keywords
+                    "analysis_method": "Keyword matching"
+                }
+            }
         elif negative_count > positive_count:
-            sentiment_result = {"sentiment": "NEGATIVE", "confidence": 0.7, "details": []}
+            sentiment_result = {
+                "sentiment": "NEGATIVE", 
+                "confidence": 0.5 + (0.1 * min(negative_count, 5)),
+                "details": {
+                    "reasoning": f"Found {negative_count} negative keywords vs {positive_count} positive keywords",
+                    "key_phrases": matched_negative[:3],
+                    "analysis_method": "Keyword matching"
+                }
+            }
         else:
-            sentiment_result = {"sentiment": "NEUTRAL", "confidence": 0.7, "details": []}
+            sentiment_result = {
+                "sentiment": "NEUTRAL", 
+                "confidence": 0.5,
+                "details": {
+                    "reasoning": "Equal number of positive and negative indicators",
+                    "key_phrases": [],
+                    "analysis_method": "Keyword matching"
+                }
+            }
         
         logger.info(f"AI OUTPUT (keyword sentiment): {json.dumps(sentiment_result)}")
         
