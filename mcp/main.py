@@ -9,6 +9,7 @@ from pymongo import MongoClient
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import logging
+import ai_models  # Import our new AI models module
 
 app = FastAPI()
 
@@ -24,6 +25,7 @@ POSTGRES_USER = os.getenv("POSTGRES_USER", "user")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "password")
 POSTGRES_DB = os.getenv("POSTGRES_DB", "restaurants_db")
 MCP_API_KEY = os.getenv("MCP_API_KEY")
+HF_API_TOKEN = os.getenv("HF_API_KEY", "")  # Optional Hugging Face API key
 # --- Pydantic Models for Request/Response ---
 class InitialPreferences(BaseModel):
    dietary_restrictions: List[str] = [] # e.g., ["vegetarian", "gluten-free"]
@@ -59,6 +61,21 @@ class RecommendationResponse(BaseModel):
     message: str
     recommendation_factors: Dict[str, float] = {}
     user_context: Optional[Dict] = None  # Add this field
+
+class EnhancedDish(BaseModel):
+    id: int
+    restaurant_id: int
+    name: str
+    description: str
+    ai_description: Optional[str] = None
+    ai_attributes: List[str] = []
+    price: float
+    dietary_tags: List[str]
+
+# Updated recommendation response model
+class EnhancedRecommendationResponse(RecommendationResponse):
+    enhanced_dishes: List[EnhancedDish] = []
+    ai_powered: bool = True
 
 class Interaction(BaseModel):
     item_id: str
@@ -326,6 +343,118 @@ async def get_recommendations(user_id: str, api_key: str = Depends(get_api_key))
         logger.error(f"Error generating recommendations for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error generating recommendations: {str(e)}")
 
+# AI-enhanced recommendations endpoint
+@app.get("/mcp/v1/ai-recommendations/user/{user_id}", response_model=EnhancedRecommendationResponse)
+async def get_ai_recommendations(user_id: str, api_key: str = Depends(get_api_key)):
+    logger.info(f"Generating AI-enhanced recommendations for user {user_id}")
+    
+    try:
+        # Get the standard recommendations first
+        standard_recs = await get_recommendations(user_id, api_key)
+        
+        # Get user context
+        user_context = get_user_context(user_id)
+        
+        # Enhance dishes with AI-generated descriptions and attributes
+        enhanced_dishes = []
+        
+        for dish in standard_recs.dishes:
+            # Get the restaurant for this dish
+            restaurant = next((r for r in standard_recs.restaurants if r.id == dish.restaurant_id), None)
+            cuisine = restaurant.cuisine if restaurant else "delicious"
+            
+            # Generate AI-enhanced description
+            ai_description = ai_models.generate_personalized_description(
+                dish_name=dish.name,
+                cuisine=cuisine,
+                user_preferences=user_context.preferences.dict()
+            )
+            
+            # Classify dish attributes
+            ai_attributes = ai_models.classify_dish_attributes(
+                dish_name=dish.name,
+                dish_description=dish.description
+            )
+            
+            # Create enhanced dish
+            enhanced_dish = EnhancedDish(
+                id=dish.id,
+                restaurant_id=dish.restaurant_id,
+                name=dish.name,
+                description=dish.description,
+                ai_description=ai_description,
+                ai_attributes=ai_attributes,
+                price=dish.price,
+                dietary_tags=dish.dietary_tags
+            )
+            
+            enhanced_dishes.append(enhanced_dish)
+        
+        # Create and return enhanced response
+        return EnhancedRecommendationResponse(
+            restaurants=standard_recs.restaurants,
+            dishes=standard_recs.dishes,
+            enhanced_dishes=enhanced_dishes,
+            message=f"Generated {len(standard_recs.restaurants)} AI-enhanced recommendations for user {user_id}",
+            recommendation_factors=standard_recs.recommendation_factors,
+            user_context=standard_recs.user_context,
+            ai_powered=True
+        )
+    
+    except Exception as e:
+        logger.error(f"Error generating AI-enhanced recommendations for user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating AI-enhanced recommendations: {str(e)}")
+
+# AI-powered sentiment analysis for user feedback
+@app.post("/mcp/v1/context/user/{user_id}/ai-feedback")
+async def analyze_user_feedback(
+    user_id: str,
+    feedback: dict = Body(...),
+    api_key: str = Depends(get_api_key)
+):
+    """
+    Analyze user feedback using sentiment analysis and update user context.
+    """
+    logger.info(f"Analyzing feedback for user {user_id}")
+    
+    try:
+        # Extract feedback text and item details
+        feedback_text = feedback.get("feedback_text", "")
+        item_id = feedback.get("item_id", "")
+        item_type = feedback.get("item_type", "")
+        
+        if not feedback_text or not item_id or not item_type:
+            raise HTTPException(status_code=400, detail="Missing required feedback data")
+        
+        # Analyze sentiment
+        sentiment_result = ai_models.analyze_feedback_sentiment(feedback_text)
+        
+        # Create interaction based on sentiment
+        interaction_type = "like" if sentiment_result["sentiment"] == "POSITIVE" else "dislike"
+        
+        # Create interaction object
+        interaction = Interaction(
+            item_id=item_id,
+            item_type=item_type,
+            interaction_type=interaction_type,
+            timestamp=feedback.get("timestamp", "") or datetime.now().isoformat()
+        )
+        
+        # Use existing interaction endpoint to update user context
+        interaction_result = await user_interaction(user_id, interaction, api_key)
+        
+        # Return enhanced response with sentiment analysis
+        return {
+            "message": f"AI-analyzed feedback recorded for user {user_id}",
+            "sentiment_analysis": sentiment_result,
+            "derived_interaction": interaction.dict(),
+            "context_updated": True
+        }
+    
+    except Exception as e:
+        logger.error(f"Error analyzing feedback for user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error analyzing feedback: {str(e)}")
+
 # Updated interaction endpoint to update user context
 @app.post("/mcp/v1/context/user/{user_id}/interact")
 async def user_interaction(
@@ -448,63 +577,63 @@ async def get_context_summary(user_id: str, api_key: str = Depends(get_api_key))
         
         # Create a human-readable summary
         summary = {
+            "user_id": user_id,
+            "explicit_preferences": {
                 "dietary_restrictions": user_context.preferences.dietary_restrictions,
-                "cuisine_preferences": user_context.preferences.cuisine_preferences,tary_restrictions,
-                "spice_level": user_context.preferences.spice_level,rences.cuisine_preferences,
-                "budget": user_context.preferences.budget  "spice_level": user_context.preferences.spice_level,
+                "cuisine_preferences": user_context.preferences.cuisine_preferences,
+                "spice_level": user_context.preferences.spice_level,
+                "budget": user_context.preferences.budget
             },
             "inferred_preferences": user_context.inferred_tastes,
             "recent_interactions": user_context.interaction_history[-5:] if user_context.interaction_history else [],
-            "context_age": "new user" if not user_context.interaction_history else f"{len(user_context.interaction_history)} interactions recorded",er_context.interaction_history[-5:] if user_context.interaction_history else [],
-            "preference_insights": []   "context_age": "new user" if not user_context.interaction_history else f"{len(user_context.interaction_history)} interactions recorded",
-        }    "preference_insights": []
+            "context_age": "new user" if not user_context.interaction_history else f"{len(user_context.interaction_history)} interactions recorded",
+            "preference_insights": []
+        }
         
         # Add insights based on explicit preferences first (for new users)
-        if user_context.preferences.cuisine_preferences:s)
+        if user_context.preferences.cuisine_preferences:
             for cuisine in user_context.preferences.cuisine_preferences:
-                summary["preference_insights"].append(f"You selected {cuisine} cuisine as a preference")    for cuisine in user_context.preferences.cuisine_preferences:
-        ou selected {cuisine} cuisine as a preference")
+                summary["preference_insights"].append(f"You selected {cuisine} cuisine as a preference")
+        
         if user_context.preferences.dietary_restrictions:
             for diet in user_context.preferences.dietary_restrictions:
-                summary["preference_insights"].append(f"You follow a {diet} diet")    for diet in user_context.preferences.dietary_restrictions:
-        ppend(f"You follow a {diet} diet")
+                summary["preference_insights"].append(f"You follow a {diet} diet")
+        
         if user_context.preferences.spice_level:
-            summary["preference_insights"].append(f"You prefer {user_context.preferences.spice_level.lower()} spice levels")ser_context.preferences.spice_level:
-            append(f"You prefer {user_context.preferences.spice_level.lower()} spice levels")
+            summary["preference_insights"].append(f"You prefer {user_context.preferences.spice_level.lower()} spice levels")
+            
         if user_context.preferences.budget:
             budget_desc = "budget-friendly" if user_context.preferences.budget == "$" else \
-                         "moderately priced" if user_context.preferences.budget == "$$" else "premium" \
-            summary["preference_insights"].append(f"You prefer {budget_desc} restaurants")                 "moderately priced" if user_context.preferences.budget == "$$" else "premium"
-        ants")
+                         "moderately priced" if user_context.preferences.budget == "$$" else "premium"
+            summary["preference_insights"].append(f"You prefer {budget_desc} restaurants")
+        
         # Add human-readable insights based on inferred tastes with lower thresholds
-        for taste, value in user_context.inferred_tastes.items(): with lower thresholds
-            if value > 0.6:  # Lower threshold from 0.7 to 0.6d_tastes.items():
+        for taste, value in user_context.inferred_tastes.items():
+            if value > 0.6:  # Lower threshold from 0.7 to 0.6
                 if taste.startswith("cuisine_"):
                     cuisine = taste.replace("cuisine_", "").title()
-                    summary["preference_insights"].append(f"Strong affinity for {cuisine} cuisine ({value:.2f})")ne_", "").title()
-                elif taste.startswith("prefers_"):uisine} cuisine ({value:.2f})")
+                    summary["preference_insights"].append(f"Strong affinity for {cuisine} cuisine ({value:.2f})")
+                elif taste.startswith("prefers_"):
                     pref = taste.replace("prefers_", "").replace("_", " ").title()
-                    summary["preference_insights"].append(f"Enjoys {pref} dishes ({value:.2f})")("_", " ").title()
-            elif value < 0.4:  # Raise threshold from 0.3 to 0.4"].append(f"Enjoys {pref} dishes ({value:.2f})")
+                    summary["preference_insights"].append(f"Enjoys {pref} dishes ({value:.2f})")
+            elif value < 0.4:  # Raise threshold from 0.3 to 0.4
                 if taste.startswith("cuisine_"):
                     cuisine = taste.replace("cuisine_", "").title()
-                    summary["preference_insights"].append(f"Low interest in {cuisine} cuisine ({value:.2f})")ne_", "").title()
-                elif taste.startswith("prefers_"):ne} cuisine ({value:.2f})")
+                    summary["preference_insights"].append(f"Low interest in {cuisine} cuisine ({value:.2f})")
+                elif taste.startswith("prefers_"):
                     pref = taste.replace("prefers_", "").replace("_", " ").title()
-                    summary["preference_insights"].append(f"Avoids {pref} dishes ({value:.2f})")            pref = taste.replace("prefers_", "").replace("_", " ").title()
-        pend(f"Avoids {pref} dishes ({value:.2f})")
+                    summary["preference_insights"].append(f"Avoids {pref} dishes ({value:.2f})")
+        
         # If still no insights, add some generic ones
-        if not summary["preference_insights"]:ic ones
+        if not summary["preference_insights"]:
             summary["preference_insights"] = [
                 "Keep interacting with recommendations to build your taste profile",
-                "Try liking or disliking more items to get personalized insights",build your taste profile",
-                "Your preferences are still being learned"   "Try liking or disliking more items to get personalized insights",
-            ]        "Your preferences are still being learned"
+                "Try liking or disliking more items to get personalized insights",
+                "Your preferences are still being learned"
+            ]
         
-        return summary    
+        return summary
     
     except Exception as e:
         logger.error(f"Error retrieving context summary for user {user_id}: {str(e)}")
-
-        raise HTTPException(status_code=500, detail=f"Error retrieving context summary: {str(e)}")        logger.error(f"Error retrieving context summary for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error retrieving context summary: {str(e)}")

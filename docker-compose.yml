@@ -55,6 +55,7 @@ services:
      POSTGRES_PASSWORD: password
      POSTGRES_DB: restaurants_db
      MCP_API_KEY: your_super_secret_mcp_api_key # For mcp to authenticate itself
+     HF_API_KEY: "ABCD" # Add this line
  mongodb:
    image: mongo:latest
    ports:
