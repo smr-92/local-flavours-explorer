@@ -137,10 +137,19 @@ app.post('/api/auth/login', (req, res) => {
 app.get('/api/recommendations', authenticateToken, async (req, res) => {
    try {
        console.log(`Fetching recommendations for user ${req.user.id}`);
+       
+       // Extract feedback history from user's token or session if needed
+       const userFeedback = req.query.feedback || '';
+       
+       // Make request to MCP with excluded items parameter
        const mcpResponse = await axios.get(
            `${MCP_API_URL}/mcp/v1/recommendations/user/${req.user.id}`,
            {
-               headers: { 'X-MCP-API-Key': MCP_API_KEY }
+               headers: { 'X-MCP-API-Key': MCP_API_KEY },
+               params: { 
+                   excluded_items: userFeedback,
+                   refresh: req.query.refresh || 'false'
+               }
            }
        );
        console.log('MCP recommendations response:', mcpResponse.data);
@@ -184,6 +193,45 @@ app.post('/api/feedback', authenticateToken, async (req, res) => {
        );
        
        console.log('MCP feedback response:', mcpResponse.data);
+       
+       // If client requested refreshed recommendations, fetch them
+       if (req.query.with_recommendations === 'true') {
+           try {
+               // Check if AI mode is enabled
+               const useAI = req.query.use_ai === 'true';
+               
+               // Choose the appropriate endpoint based on AI mode
+               const recommendationsEndpoint = useAI 
+                   ? `/mcp/v1/ai-recommendations/user/${req.user.id}`
+                   : `/mcp/v1/recommendations/user/${req.user.id}`;
+               
+               console.log(`Fetching ${useAI ? 'AI' : 'standard'} recommendations after feedback`);
+               
+               // Get fresh recommendations excluding the disliked items
+               const recommendationsResponse = await axios.get(
+                   `${MCP_API_URL}${recommendationsEndpoint}`,
+                   {
+                       headers: { 'X-MCP-API-Key': MCP_API_KEY },
+                       params: { 
+                           refresh: 'true',
+                           // Only exclude disliked items
+                           excluded_items: interactionType === 'dislike' ? itemId : ''
+                       }
+                   }
+               );
+               
+               return res.status(200).json({ 
+                   message: `Feedback recorded for user ${req.user.id}`,
+                   context_updated: true,
+                   feedback_data: feedbackData,
+                   updated_recommendations: recommendationsResponse.data
+               });
+           } catch (recError) {
+               console.error('Error fetching updated recommendations:', recError.message);
+           }
+       }
+       
+       // Default response if not fetching recommendations
        res.status(200).json({ 
            message: `Feedback recorded for user ${req.user.id}`,
            context_updated: true,
@@ -258,7 +306,11 @@ app.get('/api/ai-recommendations', authenticateToken, async (req, res) => {
        const mcpResponse = await axios.get(
            `${MCP_API_URL}/mcp/v1/ai-recommendations/user/${req.user.id}`,
            {
-               headers: { 'X-MCP-API-Key': MCP_API_KEY }
+               headers: { 'X-MCP-API-Key': MCP_API_KEY },
+               params: { 
+                   excluded_items: req.query.feedback || '',
+                   refresh: req.query.refresh || 'false'
+               }
            }
        );
        const endTime = Date.now();
@@ -323,7 +375,8 @@ app.post('/api/ai-feedback', authenticateToken, async (req, res) => {
            message: `AI-analyzed feedback recorded for user ${req.user.id}`,
            sentiment_analysis: mcpResponse.data.sentiment_analysis,
            interaction: mcpResponse.data.derived_interaction,
-           context_updated: true
+           context_updated: true,
+           ai_details: mcpResponse.data.sentiment_analysis?.details || null  // Include AI details in response
        });
    } catch (error) {
        console.error('Error sending AI feedback to MCP:', error.response ? error.response.data : error.message);

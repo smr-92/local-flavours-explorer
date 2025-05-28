@@ -1,5 +1,5 @@
 // frontend/src/App.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useNavigate } from 'react-router-dom';
 import axios from 'axios'; // Import axios
 import './App.css';
@@ -167,6 +167,10 @@ const Home = () => {
   const [useAI, setUseAI] = useState(false); // Add a new state for AI mode
   const [aiStatus, setAiStatus] = useState('off'); // 'off', 'loading', 'ready', 'error'
   const [aiDebugInfo, setAiDebugInfo] = useState(null);
+  const [recommendationFactors, setRecommendationFactors] = useState({});
+  const [likedItems, setLikedItems] = useState([]);
+  const [dislikedItems, setDislikedItems] = useState([]);
+  const feedbackStatusRef = useRef(null); // Add a ref for the feedback status
   const navigate = useNavigate();
 
   // Add a function to fetch AI-enhanced recommendations with status indicators
@@ -186,12 +190,20 @@ const Home = () => {
 
       // Choose the endpoint based on AI mode
       const endpoint = useAI ? '/api/ai-recommendations' : '/api/recommendations';
+      
+      // Include disliked items as excluded parameters
+      const params = new URLSearchParams();
+      if (dislikedItems.length > 0) {
+        params.append('feedback', dislikedItems.join(','));
+      }
+      params.append('refresh', 'true');
 
-      const response = await axios.get(`${API_URL}${endpoint}`, {
+      const response = await axios.get(`${API_URL}${endpoint}?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
       setRecommendations(response.data);
+      setRecommendationFactors(response.data.recommendation_factors || {});
 
       // Update AI status and debug info if using AI
       if (useAI) {
@@ -254,28 +266,42 @@ const Home = () => {
 
     try {
       setFeedbackStatus(`Sending ${interactionType} feedback...`);
+      
+      // Update local state for liked/disliked items
+      if (interactionType === 'like') {
+        setLikedItems(prev => [...prev, itemId]);
+      } else {
+        setDislikedItems(prev => [...prev, itemId]);
+      }
+      
+      // Include AI mode in the request
       const response = await axios.post(
-        `${API_URL}/api/feedback`,
+        `${API_URL}/api/feedback?with_recommendations=true&use_ai=${useAI}`,
         { itemId, itemType, interactionType },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
       setFeedbackStatus(`Feedback recorded! ${interactionType === 'like' ? '👍' : '👎'}`);
 
-      // After a short delay, fetch new recommendations
-      setTimeout(() => {
-        setFeedbackStatus(null);
-        setLoading(true);
-        axios.get(`${API_URL}/api/recommendations`, {
-          headers: { Authorization: `Bearer ${token}` }
-        }).then(response => {
-          setRecommendations(response.data);
-          setLoading(false);
-        }).catch(error => {
-          console.error('Error refreshing recommendations:', error);
-          setLoading(false);
-        });
-      }, 2000);
+      // If we got updated recommendations in the response, use them directly
+      if (response.data.updated_recommendations) {
+        setRecommendations(response.data.updated_recommendations);
+        setRecommendationFactors(response.data.updated_recommendations.recommendation_factors || {});
+        
+        // If we're in AI mode but enhanced_dishes is missing, fetch AI recommendations separately
+        if (useAI && !response.data.updated_recommendations.enhanced_dishes) {
+          console.log("Fetching AI recommendations separately after feedback");
+          fetchRecommendations();
+        } else {
+          setTimeout(() => setFeedbackStatus(null), 2000);
+        }
+      } else {
+        // Otherwise, fetch new recommendations after a short delay
+        setTimeout(() => {
+          setFeedbackStatus(null);
+          fetchRecommendations();
+        }, 2000);
+      }
 
     } catch (error) {
       console.error('Error sending feedback:', error.response ? error.response.data : error.message);
@@ -284,7 +310,7 @@ const Home = () => {
     }
   };
 
-  // Add a new function for text-based feedback
+  // Update the handleTextFeedback function to refresh recommendation factors and scroll
   const handleTextFeedback = async (itemId, itemType, feedbackText) => {
     const token = localStorage.getItem('token');
     if (!token) {
@@ -300,22 +326,75 @@ const Home = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      // Show sentiment analysis result
+      // Get sentiment analysis data
       const sentiment = response.data.sentiment_analysis.sentiment;
+      const confidence = response.data.sentiment_analysis.confidence;
+      const aiDetails = response.data.ai_details;
       const emoji = sentiment === 'POSITIVE' ? '😃' : sentiment === 'NEGATIVE' ? '😞' : '😐';
 
-      setFeedbackStatus(`Your feedback was analyzed as ${sentiment} ${emoji}`);
+      // Display more detailed feedback with confidence - make it persistent
+      setFeedbackStatus(
+        <div className="ai-sentiment-analysis">
+          <div className="sentiment-main">
+            Your feedback was analyzed as <strong>{sentiment}</strong> {emoji} with {(confidence * 100).toFixed(0)}% confidence
+          </div>
+          
+          {aiDetails && (
+            <div className="sentiment-details">
+              <div className="ai-badge-small">AI</div>
+              <div className="reasoning">{aiDetails.reasoning}</div>
+              {aiDetails.key_phrases && aiDetails.key_phrases.length > 0 && (
+                <div className="key-phrases">
+                  Key phrases: {aiDetails.key_phrases.join(', ')}
+                </div>
+              )}
+              <div className="analysis-method">Analysis method: {aiDetails.analysis_method}</div>
+            </div>
+          )}
+          <button 
+            onClick={() => setFeedbackStatus(null)} 
+            className="close-feedback-btn"
+          >
+            Dismiss
+          </button>
+        </div>
+      );
 
-      // After a short delay, fetch new recommendations
+      // Fetch updated recommendation factors without full page reload
+      try {
+        const recResponse = await axios.get(`${API_URL}/api/recommendations`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        // Only update the recommendation factors, not the entire recommendations
+        setRecommendationFactors(recResponse.data.recommendation_factors || {});
+      } catch (error) {
+        console.error('Error updating recommendation factors:', error);
+      }
+
+      // Scroll to the feedback status after it's rendered
       setTimeout(() => {
-        setFeedbackStatus(null);
-        fetchRecommendations();
-      }, 2000);
+        if (feedbackStatusRef.current) {
+          feedbackStatusRef.current.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center' 
+          });
+        }
+      }, 100);
 
     } catch (error) {
       console.error('Error sending feedback:', error.response ? error.response.data : error.message);
-      setFeedbackStatus('Failed to process feedback. Please try again.');
-      setTimeout(() => setFeedbackStatus(null), 3000);
+      setFeedbackStatus(
+        <div className="ai-sentiment-analysis error">
+          <div className="sentiment-main">Failed to process feedback. Please try again.</div>
+          <button 
+            onClick={() => setFeedbackStatus(null)} 
+            className="close-feedback-btn"
+          >
+            Dismiss
+          </button>
+        </div>
+      );
     }
   };
 
@@ -392,7 +471,7 @@ const Home = () => {
 
       {/* Feedback Status */}
       {feedbackStatus && (
-        <div className="feedback-status">
+        <div className="feedback-status" ref={feedbackStatusRef}>
           {feedbackStatus}
         </div>
       )}
@@ -412,11 +491,11 @@ const Home = () => {
 
             return (
               <div>
-                {/* Recommendation Factors */}
+                {/* Recommendation Factors - Use the separate state instead of recommendations.recommendation_factors */}
                 <div className="recommendation-factors">
                   <h3>Your Recommendation Factors</h3>
                   <div className="factors-grid">
-                    {Object.entries(recommendations.recommendation_factors || {}).map(([factor, value]) => (
+                    {Object.entries(recommendationFactors).map(([factor, value]) => (
                       <div key={factor} className="factor-item">
                         <div className="factor-name">{factor.replace(/_/g, ' ').replace(/^(.)|\s+(.)/g, c => c.toUpperCase())}</div>
                         <div className="factor-bar">
@@ -590,7 +669,7 @@ const Home = () => {
                         onClick={() => handleFeedback(dish.id, 'dish', 'dislike')}
                         className="dislike-button"
                       >
-                        👎 Dislike
+                          👎 Dislike
                       </button>
                     </div>
                   </div>
@@ -997,3 +1076,46 @@ function App() {
 }
 
 export default App;
+
+// Add these CSS styles to enhance the display of sentiment analysis
+// You can add this to App.css or include it inline in a style tag if needed
+/*
+.ai-sentiment-analysis {
+  background-color: #f5f5f5;
+  border-left: 4px solid #5436DA;
+  padding: 12px;
+  border-radius: 6px;
+  margin: 10px 0;
+  animation: fadeIn 0.5s ease;
+}
+
+.sentiment-main {
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.sentiment-details {
+  font-size: 0.9em;
+  padding: 8px;
+  background-color: rgba(84, 54, 218, 0.05);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.reasoning {
+  font-style: italic;
+}
+
+.key-phrases {
+  font-size: 0.85em;
+  color: #555;
+}
+
+.analysis-method {
+  font-size: 0.8em;
+  color: #666;
+  margin-top: 5px;
+}
+*/
